@@ -32,6 +32,10 @@ use crate::{print_error, ExitCode};
 
 use std::io::{self, Error, ErrorKind};
 use std::path::{Component, Path, PathBuf};
+use std::str;
+
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 #[derive(Clone, Debug)]
 pub struct Meta {
@@ -123,9 +127,16 @@ impl Meta {
             #[cfg(not(windows))]
             let is_system = false;
 
+            #[cfg(target_os = "macos")]
+            let is_resource_fork = name.to_string_lossy().starts_with("._")
+                && Self::is_appledouble_resource_fork(&path);
+            #[cfg(not(target_os = "macos"))]
+            let is_resource_fork = false;
+
             match flags.display {
                 // show hidden files, but ignore system protected files
-                Display::All | Display::AlmostAll if is_system => continue,
+                Display::All if is_system => continue,
+                Display::AlmostAll if is_system || is_resource_fork => continue,
                 // ignore hidden and system protected files
                 Display::VisibleOnly if is_hidden || is_system => continue,
                 _ => {}
@@ -301,6 +312,17 @@ impl Meta {
             content: None,
             access_control,
         })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn is_appledouble_resource_fork(path: &Path) -> bool {
+        Command::new("file")
+            .arg(path.as_os_str())
+            .output()
+            .map_or(false, |v| match str::from_utf8(&v.stdout) {
+                Ok(s) => s.contains("AppleDouble"),
+                Err(_) => false,
+            })
     }
 }
 
